@@ -99,7 +99,7 @@ app.get("/api/info", async (req, res) => {
   }
 });
 
-// --- Download audio as MP3 ---
+// --- Download audio as MP3 (with fallback for music videos) ---
 app.post("/api/download", async (req, res) => {
   const { url, quality } = req.body;
   if (!url) return res.status(400).json({ error: "Missing 'url' in request body" });
@@ -108,47 +108,104 @@ app.post("/api/download", async (req, res) => {
   const outputTemplate = path.join(DOWNLOAD_DIR, `${jobId}_%(title).50s.%(ext)s`);
   const audioQuality = quality || "0";
 
-  const args = [
-    ...getCommonArgs(),
-    "--no-warnings",
-    "--no-playlist",
-    "--restrict-filenames",
-    "-x",
-    "--audio-format", "mp3",
-    "--audio-quality", audioQuality,
-    "-o", outputTemplate,
-    url,
+  // Different strategies to try, in order
+  const strategies = [
+    {
+      name: "web",
+      args: ["--extractor-args", "youtube:player_client=web,default"],
+    },
+    {
+      name: "ios",
+      args: [
+        "--extractor-args", "youtube:player_client=ios,web",
+        "--user-agent", "com.google.ios.youtube/19.29.1 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X;)",
+      ],
+    },
+    {
+      name: "android",
+      args: [
+        "--extractor-args", "youtube:player_client=android_music,android",
+        "--user-agent", "com.google.android.youtube/19.29.37 (Linux; U; Android 14) gzip",
+      ],
+    },
+    {
+      name: "tv",
+      args: [
+        "--extractor-args", "youtube:player_client=tv,web",
+      ],
+    },
   ];
 
-  try {
-    await execFileAsync(YT_DLP_BIN, args, {
-      timeout: 600000, // 10 min timeout
-      maxBuffer: 50 * 1024 * 1024,
-    });
+  let lastError = null;
 
-    const files = fs.readdirSync(DOWNLOAD_DIR).filter(f => f.startsWith(jobId));
-    if (files.length === 0) {
-      return res.status(500).json({ error: "Download completed but file not found" });
-    }
-
-    const filename = files[0];
-    const filePath = path.join(DOWNLOAD_DIR, filename);
-    const stats = fs.statSync(filePath);
-
-    res.json({
-      success: true,
-      file_url: `${BASE_URL}/files/${encodeURIComponent(filename)}`,
-      filename,
-      size: stats.size,
-      expires_in: "30 minutes",
-    });
-  } catch (err) {
+  for (const strategy of strategies) {
+    // Clean up any partial files from previous attempt
     fs.readdirSync(DOWNLOAD_DIR)
       .filter(f => f.startsWith(jobId))
-      .forEach(f => fs.unlinkSync(path.join(DOWNLOAD_DIR, f)));
+      .forEach(f => { try { fs.unlinkSync(path.join(DOWNLOAD_DIR, f)); } catch {} });
 
-    res.status(500).json({ error: "Download failed", details: err.stderr || err.message });
+    const args = [
+      ...getProxyArgs(),
+      ...strategy.args,
+      "--no-warnings",
+      "--no-playlist",
+      "--restrict-filenames",
+      "-x",
+      "--audio-format", "mp3",
+      "--audio-quality", audioQuality,
+      "-o", outputTemplate,
+      url,
+    ];
+
+    // Add default user-agent if strategy doesn't provide one
+    if (!strategy.args.some(a => a === "--user-agent")) {
+      args.splice(1, 0,
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+      );
+    }
+
+    console.log(`[download] Trying strategy: ${strategy.name} for ${url}`);
+
+    try {
+      await execFileAsync(YT_DLP_BIN, args, {
+        timeout: 600000,
+        maxBuffer: 50 * 1024 * 1024,
+      });
+
+      const files = fs.readdirSync(DOWNLOAD_DIR).filter(f => f.startsWith(jobId));
+      if (files.length === 0) continue;
+
+      const filename = files[0];
+      const filePath = path.join(DOWNLOAD_DIR, filename);
+      const stats = fs.statSync(filePath);
+
+      // Check file is not empty
+      if (stats.size < 1000) {
+        fs.unlinkSync(filePath);
+        continue;
+      }
+
+      console.log(`[download] Success with strategy: ${strategy.name}`);
+      return res.json({
+        success: true,
+        file_url: `${BASE_URL}/files/${encodeURIComponent(filename)}`,
+        filename,
+        size: stats.size,
+        expires_in: "30 minutes",
+      });
+    } catch (err) {
+      lastError = err.stderr || err.message;
+      console.log(`[download] Strategy ${strategy.name} failed: ${lastError.substring(0, 100)}`);
+    }
   }
+
+  // All strategies failed - cleanup
+  fs.readdirSync(DOWNLOAD_DIR)
+    .filter(f => f.startsWith(jobId))
+    .forEach(f => { try { fs.unlinkSync(path.join(DOWNLOAD_DIR, f)); } catch {} });
+
+  res.status(500).json({ error: "Download failed", details: lastError });
 });
 
 // --- Cleanup old files ---
