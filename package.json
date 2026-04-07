@@ -1,0 +1,17 @@
+{
+  "name": "yt-dlp-service",
+  "version": "2.0.0",
+  "description": "YouTube to MP3 service with Cloudflare WARP",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "uuid": "^10.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

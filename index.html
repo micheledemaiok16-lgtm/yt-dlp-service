@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>yt-dlp MP3 Service</title>
+  <style>
+    body { font-family: system-ui; background: #0a0a0f; color: #e4e4ef; display: flex; justify-content: center; padding: 3rem 1rem; }
+    .container { max-width: 500px; width: 100%; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+    input { width: 100%; padding: 0.75rem; background: #1a1a26; border: 1px solid #2a2a3a; color: #e4e4ef; border-radius: 8px; font-size: 0.9rem; margin-bottom: 0.75rem; }
+    button { background: #ff3d5a; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 8px; cursor: pointer; font-size: 0.9rem; }
+    button:disabled { opacity: 0.4; }
+    #result, #error { margin-top: 1rem; padding: 1rem; border-radius: 8px; display: none; }
+    #result { background: #1a2a1a; border: 1px solid #22c55e; }
+    #result a { color: #22c55e; word-break: break-all; }
+    #error { background: #2a1a1a; border: 1px solid #ff3d5a; color: #ff3d5a; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>YouTube → MP3</h1>
+  <input type="text" id="url" placeholder="https://youtube.com/watch?v=..." />
+  <button id="btn" onclick="go()">Get MP3</button>
+  <div id="result"><a id="link" href="#" target="_blank"></a></div>
+  <div id="error"></div>
+</div>
+<script>
+async function go() {
+  const url = document.getElementById('url').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('btn');
+  btn.disabled = true; btn.textContent = 'Downloading...';
+  document.getElementById('result').style.display = 'none';
+  document.getElementById('error').style.display = 'none';
+  try {
+    const r = await fetch('/api/download', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({url}) });
+    const d = await r.json();
+    if (d.success) {
+      const link = document.getElementById('link');
+      link.href = d.file_url; link.textContent = d.filename;
+      document.getElementById('result').style.display = 'block';
+    } else throw new Error(d.details || d.error);
+  } catch(e) {
+    document.getElementById('error').textContent = e.message;
+    document.getElementById('error').style.display = 'block';
+  } finally { btn.disabled = false; btn.textContent = 'Get MP3'; }
+}
+document.getElementById('url').addEventListener('keydown', e => { if(e.key==='Enter') go(); });
+</script>
+</body>
+</html>
