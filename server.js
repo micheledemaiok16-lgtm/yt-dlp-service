@@ -144,9 +144,14 @@ app.post("/api/download", async (req, res) => {
       .filter(f => f.startsWith(jobId))
       .forEach(f => { try { fs.unlinkSync(path.join(DOWNLOAD_DIR, f)); } catch {} });
 
+    const userAgent = strategy.args.some(a => a === "--user-agent")
+      ? []
+      : ["--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"];
+
     const args = [
       ...getProxyArgs(),
       ...strategy.args,
+      ...userAgent,
       "--no-warnings",
       "--no-playlist",
       "--restrict-filenames",
@@ -156,14 +161,6 @@ app.post("/api/download", async (req, res) => {
       "-o", outputTemplate,
       url,
     ];
-
-    // Add default user-agent if strategy doesn't provide one
-    if (!strategy.args.some(a => a === "--user-agent")) {
-      args.splice(1, 0,
-        "--user-agent",
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-      );
-    }
 
     console.log(`[download] Trying strategy: ${strategy.name} for ${url}`);
 
